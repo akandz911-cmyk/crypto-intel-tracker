@@ -1,34 +1,24 @@
 name: AI Processing
-
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes
-  workflow_dispatch:          # allow manual trigger from GitHub UI
-
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 jobs:
   ai-processing:
     runs-on: ubuntu-latest
-    timeout-minutes: 4        # kill if it runs over to prevent overlap
-
+    timeout-minutes: 4
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run AI processing
+          node-version: '22'
+      - run: npm install
+      - run: npm run job:ai-processing
         env:
-          SUPABASE_URL:            ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_ANON_KEY:       ${{ secrets.SUPABASE_ANON_KEY }}
-          GEMINI_API_KEY:          ${{ secrets.GEMINI_API_KEY }}
-          CMC_API_KEY:             ${{ secrets.CMC_API_KEY }}
-          COINGECKO_API_KEY:       ${{ secrets.COINGECKO_API_KEY }}
-          GITHUB_TOKEN:            ${{ secrets.GH_TOKEN }}
-        run: npm run job:ai-processing
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
