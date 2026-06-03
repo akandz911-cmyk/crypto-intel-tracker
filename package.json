@@ -1,15 +1,11 @@
 {
   "name": "crypto-intel-tracker",
   "version": "1.0.0",
-  "description": "Fully automated crypto project intelligence tracker",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/scheduler.js",
-    "dev": "ts-node src/scheduler.ts",
-    "job:discovery":       "ts-node src/jobs/discovery.ts",
-    "job:ingestion":       "ts-node src/jobs/ingestion.ts",
-    "job:ai-processing":   "ts-node src/jobs/ai-processing.ts",
-    "job:channel-refresh": "ts-node src/jobs/channel-refresh.ts"
+    "job:discovery":       "ts-node --transpile-only src/jobs/discovery.ts",
+    "job:ingestion":       "ts-node --transpile-only src/jobs/ingestion.ts",
+    "job:ai-processing":   "ts-node --transpile-only src/jobs/ai-processing.ts",
+    "job:channel-refresh": "ts-node --transpile-only src/jobs/channel-refresh.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.15.0",
@@ -18,12 +14,14 @@
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3",
     "node-fetch": "^2.7.0",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/node-cron": "^3.0.11",
     "@types/node-fetch": "^2.6.11",
+    "@types/ws": "^8.5.12",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   }
