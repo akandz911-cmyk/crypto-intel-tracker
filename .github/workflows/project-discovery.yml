@@ -1,0 +1,35 @@
+name: Project Discovery
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # daily at 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run project discovery
+        env:
+          SUPABASE_URL:            ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY:       ${{ secrets.SUPABASE_ANON_KEY }}
+          GEMINI_API_KEY:          ${{ secrets.GEMINI_API_KEY }}
+          CMC_API_KEY:             ${{ secrets.CMC_API_KEY }}
+          COINGECKO_API_KEY:       ${{ secrets.COINGECKO_API_KEY }}
+          GITHUB_TOKEN:            ${{ secrets.GH_TOKEN }}
+        run: npm run job:discovery
