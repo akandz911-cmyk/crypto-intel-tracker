@@ -14,7 +14,7 @@ export const config = {
   },
   gemini: {
     apiKey: require_env('GEMINI_API_KEY'),
-    model:  'gemini-1.5-flash' as const,
+    model: 'gemini-2.0-flash-lite' as const,
   },
   apis: {
     coinGeckoKey:     process.env.COINGECKO_API_KEY ?? '',
