@@ -237,6 +237,7 @@ const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let allEvents  = [];
 let projectMap = {};
 let activeCategory = '';
+let eventStore = {};
 
 // ── LABEL MAPS ─────────────────────────────────────────────────
 const URGENCY_CONFIG = {
@@ -298,6 +299,8 @@ async function load() {
   });
 
   allEvents = events;
+eventStore = {};
+allEvents.forEach(function(e) { eventStore[e.id] = e; });
   (prRes.data||[]).forEach(p => projectMap[p.id] = p);
 
   const actionCount = allEvents.filter(e => e.action_required).length;
@@ -405,7 +408,7 @@ function renderCard(e) {
     ${stepsHtml}
     ${deadlineHtml}
     <div class="card-bottom">
-      <button class="validate-btn" onclick="handleValidate(this, ${JSON.stringify(JSON.stringify(e)).slice(1,-1)})">
+      <button class="validate-btn" onclick="handleValidate(this, '${e.id}')">
         ✉ Validate &amp; Export Email
       </button>
     </div>
@@ -423,9 +426,9 @@ document.getElementById('chips-bar').addEventListener('click', e => {
 });
 
 // ── VALIDATE → EMAIL GENERATION ───────────────────────────────
-async function handleValidate(btn, eventJson) {
-  let event;
-  try { event = JSON.parse(eventJson); } catch { return; }
+async function handleValidate(btn, eventId) {
+  const event = eventStore[eventId];
+  if (!event) { alert('Event not found. Please refresh the page.'); return; }
 
   const proj = projectMap[event.project_id] || {};
 
