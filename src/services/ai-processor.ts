@@ -2,48 +2,50 @@ import fetch from 'node-fetch';
 import { supabase } from '../db/client';
 import { logger } from '../utils/logger';
 
-// Direct HTTP call to Gemini — no SDK, no compatibility issues
+// Cache the first model that works so we don't waste requests testing others
+let workingModel: string | null = null;
+
 async function callGemini(prompt: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
-  const models = [
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-1.5-flash-latest',
-    'gemini-pro',
-  ];
+  const models = workingModel
+    ? [workingModel]
+    : ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-latest', 'gemini-pro'];
 
   for (const model of models) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    let res: Awaited<ReturnType<typeof fetch>>;
-    try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 512, temperature: 0 },
-        }),
-      });
-    } catch (err) {
-      throw new Error(`Network error: ${String(err)}`);
-    }
 
-    if (res.status === 404) {
-      logger.warn(`Model ${model} returned 404, trying next`);
-      continue;
+    const makeRequest = async () => fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 512, temperature: 0 },
+      }),
+    });
+
+    let res = await makeRequest();
+
+    if (res.status === 404) { logger.warn(`Model ${model} not found, trying next`); continue; }
+
+    // On 429 wait a full minute then retry once
+    if (res.status === 429) {
+      logger.warn('Rate limited — waiting 65 seconds then retrying');
+      await sleep(65000);
+      res = await makeRequest();
     }
 
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Gemini HTTP ${res.status} using ${model}: ${body.slice(0, 400)}`);
+      throw new Error(`HTTP ${res.status} from ${model}: ${body.slice(0, 300)}`);
     }
 
     const data = await res.json() as any;
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     if (!text) throw new Error(`Empty response from ${model}`);
-    logger.info(`Using model: ${model}`);
+
+    if (!workingModel) { workingModel = model; logger.info(`Working model: ${model}`); }
     return text;
   }
 
@@ -51,18 +53,18 @@ async function callGemini(prompt: string): Promise<string> {
 }
 
 async function classifyOne(rawText: string, sourceUrl: string, platform: string): Promise<any> {
-  const prompt = `You are a crypto analyst. Is this crypto news significant?
+  const prompt = `You are a crypto analyst. Is this news significant?
 
-SIGNIFICANT: exploit, hack, security breach, protocol upgrade, mainnet launch, exchange listing, delisting, regulatory action, major partnership, airdrop, token burn, governance vote, outage, rug pull, project shutdown.
-NOT SIGNIFICANT: price commentary, market analysis, opinion, general roundups, social posts.
+SIGNIFICANT: hack, exploit, security breach, protocol upgrade, mainnet launch, exchange listing, delisting, regulatory action, major partnership, airdrop, token burn, governance vote, outage, rug pull, project shutdown.
+NOT SIGNIFICANT: price commentary, market analysis, opinion pieces, general news roundups.
 
 Source: ${platform}
-URL: ${sourceUrl}
 Text: ${rawText.slice(0, 500)}
 
-Reply with ONLY valid JSON and nothing else:
-Not significant: {"significant":false}
-Significant: {"significant":true,"event_category":"planned or unplanned","event_type":"exploit or upgrade or listing or delisting or regulatory_action or partnership or airdrop or token_burn or governance or downtime or rug_pull or incident or product_launch","severity":3,"title":"short title under 80 chars","description":"2 sentence factual summary","source_url":"${sourceUrl}"}`;
+Reply with ONLY valid JSON:
+{"significant":false}
+OR
+{"significant":true,"event_category":"planned or unplanned","event_type":"exploit or upgrade or listing or delisting or regulatory_action or partnership or airdrop or token_burn or governance or downtime or rug_pull or incident or product_launch","severity":3,"title":"short title","description":"2 sentence summary","source_url":"${sourceUrl}"}`;
 
   const text = await callGemini(prompt);
   const match = text.match(/\{[\s\S]*?\}/);
@@ -81,8 +83,8 @@ async function findProjectId(rawText: string, existingId?: string): Promise<stri
     if ((p.name?.length ?? 0) > 2 && text.includes(p.name.toLowerCase())) return p.id;
     if ((p.token_symbol?.length ?? 0) > 2 && text.includes(p.token_symbol!.toLowerCase())) return p.id;
   }
-  const { data: fallback } = await supabase.from('projects').select('id').eq('slug', 'general-crypto-news').single();
-  return fallback?.id ?? null;
+  const { data: fb } = await supabase.from('projects').select('id').eq('slug', 'general-crypto-news').single();
+  return fb?.id ?? null;
 }
 
 export async function runAiProcessing(): Promise<void> {
@@ -97,7 +99,8 @@ export async function runAiProcessing(): Promise<void> {
       .from('raw_content').select('*')
       .in('processing_status', ['pending', 'error'])
       .lt('processing_attempts', 3)
-      .order('fetched_at', { ascending: true }).limit(20);
+      .order('fetched_at', { ascending: true })
+      .limit(8); // Small batch — leaves room for 429 retry waits within timeout
 
     if (!items?.length) { logger.info('Nothing to process'); return; }
     logger.info(`Processing ${items.length} items`);
@@ -111,32 +114,35 @@ export async function runAiProcessing(): Promise<void> {
       let result: any;
       try {
         result = await classifyOne(item.raw_text, item.source_url, item.source_platform);
-        logger.info(`Item ${processed}: significant=${result.significant} type=${result.event_type ?? 'n/a'}`);
+        logger.info(`Item ${processed}: significant=${result.significant} type=${result.event_type ?? '-'}`);
       } catch (err) {
-        logger.warn(`Failed item ${processed}: ${String(err).slice(0, 300)}`);
+        logger.warn(`Item ${processed} failed: ${String(err).slice(0, 200)}`);
         await supabase.from('raw_content').update({
-          processing_status: 'error', processing_error: String(err).slice(0, 200), processing_attempts: 1
+          processing_status: 'error',
+          processing_error: String(err).slice(0, 200),
+          processing_attempts: 1,
         }).eq('id', item.id);
         errors++;
-        await sleep(3000);
+        await sleep(8000);
         continue;
       }
 
       if (!result.significant || !result.event_type || !result.title) {
         await supabase.from('raw_content').update({ processing_status: 'skipped', processing_attempts: 1 }).eq('id', item.id);
-        await sleep(4000);
+        await sleep(8000); // 8 seconds = 7.5 RPM — safely under 15 RPM limit
         continue;
       }
 
       const projectId = await findProjectId(item.raw_text, item.project_id);
       if (!projectId) {
         await supabase.from('raw_content').update({ processing_status: 'skipped', processing_attempts: 1 }).eq('id', item.id);
-        await sleep(4000);
+        await sleep(8000);
         continue;
       }
 
-      const { error: insertErr } = await supabase.from('events').insert({
-        project_id: projectId, raw_content_id: item.id,
+      const { error: ie } = await supabase.from('events').insert({
+        project_id: projectId,
+        raw_content_id: item.id,
         event_category: result.event_category ?? 'unplanned',
         event_type: result.event_type,
         severity: Math.min(5, Math.max(1, Number(result.severity) || 3)),
@@ -149,19 +155,23 @@ export async function runAiProcessing(): Promise<void> {
       });
 
       await supabase.from('raw_content').update({
-        processing_status: insertErr ? 'error' : 'done',
-        is_significant: !insertErr, processed_at: new Date().toISOString(), processing_attempts: 1,
+        processing_status: ie ? 'error' : 'done',
+        is_significant: !ie,
+        processed_at: new Date().toISOString(),
+        processing_attempts: 1,
       }).eq('id', item.id);
 
-      if (!insertErr) { events++; logger.info(`✓ Event saved: ${result.title}`); }
-      else logger.warn(`Insert error: ${insertErr.message}`);
-      await sleep(4000);
+      if (!ie) { events++; logger.info(`✓ Event: ${result.title}`); }
+      else logger.warn(`Insert error: ${ie.message}`);
+      await sleep(8000);
     }
   } finally {
     logger.info(`Done: ${processed} processed, ${events} events, ${errors} errors`);
     if (jobId) await supabase.from('system_jobs').update({
-      status: 'completed', completed_at: new Date().toISOString(),
-      items_processed: events, metadata: { processed, events, errors },
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      items_processed: events,
+      metadata: { processed, events, errors },
     }).eq('id', jobId);
   }
 }
