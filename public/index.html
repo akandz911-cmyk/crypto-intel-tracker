@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crypto Intelligence</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b0d10;--surface:#13161d;--surface2:#1a1e28;--surface3:#222736;
+  --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.13);
+  --text:#e8eaf0;--muted:#7a8299;--dim:#4a5268;
+  --red:#ef4444;--orange:#f97316;--yellow:#eab308;--green:#22c55e;--blue:#4f8ef7;
+  --red-bg:rgba(239,68,68,.1);--orange-bg:rgba(249,115,22,.1);
+  --yellow-bg:rgba(234,179,8,.1);--green-bg:rgba(34,197,94,.1);--blue-bg:rgba(79,142,247,.1);
+  --font:-apple-system,BlinkMacSystemFont,'Inter',sans-serif;
+}
+html,body{min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;-webkit-font-smoothing:antialiased}
+
+/* HEADER */
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-icon{font-size:20px}
+.brand-title{font-size:16px;font-weight:700;letter-spacing:-.02em}
+.brand-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.header-right{display:flex;align-items:center;gap:12px}
+.stat-pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:11px;color:var(--muted)}
+.stat-pill span{color:var(--text);font-weight:600}
+.live-badge{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--green)}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+
+/* CHIPS */
+.chips-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 24px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.chips-bar::-webkit-scrollbar{display:none}
+.chip{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .15s;flex-shrink:0;user-select:none}
+.chip:hover{border-color:var(--border2);color:var(--text)}
+.chip.active{background:var(--blue-bg);border-color:var(--blue);color:var(--blue)}
+
+/* FILTER BAR */
+.filter-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 24px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.search-wrap{position:relative;flex:1;min-width:180px}
+.search{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.search:focus{border-color:var(--blue)}
+select{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:12px;outline:none;cursor:pointer}
+.filter-count{font-size:11px;color:var(--dim);margin-left:auto}
+
+/* MAIN */
+main{max-width:1100px;margin:0 auto;padding:20px 24px 60px}
+.section-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.section-title{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.section-title.action{color:var(--orange)}
+.section-title.inform{color:var(--blue)}
+.section-count{font-size:11px;padding:2px 8px;border-radius:10px}
+.section-count.action{background:var(--orange-bg);color:var(--orange)}
+.section-count.inform{background:var(--blue-bg);color:var(--blue)}
+.section-divider{height:1px;background:var(--border);margin:24px 0 16px}
+
+/* CARDS */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:10px;border-left:4px solid transparent;transition:box-shadow .15s}
+.card:hover{box-shadow:0 4px 20px rgba(0,0,0,.4)}
+.card.immediate{border-left-color:var(--red)}
+.card.days{border-left-color:var(--orange)}
+.card.weeks{border-left-color:var(--yellow)}
+.card.informational{border-left-color:var(--blue)}
+
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.badges{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.badge-urgency{display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700}
+.badge-urgency.immediate{background:var(--red-bg);color:var(--red)}
+.badge-urgency.days{background:var(--orange-bg);color:var(--orange)}
+.badge-urgency.weeks{background:var(--yellow-bg);color:var(--yellow)}
+.badge-urgency.informational{background:var(--blue-bg);color:var(--blue)}
+.badge-action{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;background:rgba(255,255,255,.06);color:var(--text)}
+.badge-users{padding:3px 9px;border-radius:20px;font-size:11px;color:var(--muted);background:var(--surface3)}
+
+.card-meta{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.source-link{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;text-decoration:none;color:var(--muted);font-size:11px;transition:all .15s}
+.source-link:hover{border-color:var(--blue);color:var(--blue)}
+.time-label{font-size:11px;color:var(--dim)}
+
+.project-row{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.project-logo{width:16px;height:16px;border-radius:3px;object-fit:contain}
+.project-name{font-size:12px;font-weight:600;color:var(--muted)}
+.project-cat{font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,.05);color:var(--dim)}
+
+.card-title{font-size:15px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:6px}
+.card-desc{font-size:13px;color:var(--muted);line-height:1.65;margin-bottom:12px}
+
+.steps-label{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.steps{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.step{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--muted);line-height:1.5}
+.step-num{width:18px;height:18px;border-radius:50%;background:var(--surface3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text);flex-shrink:0;margin-top:1px}
+
+.deadline{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:var(--red-bg);border:1px solid rgba(239,68,68,.2);border-radius:6px;font-size:12px;color:var(--red);margin-bottom:12px}
+
+.card-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:4px}
+
+.validate-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.validate-btn:hover:not(:disabled){background:var(--green-bg);border-color:var(--green);color:var(--green)}
+.validate-btn:disabled{opacity:.5;cursor:not-allowed}
+.validate-btn.loading{color:var(--blue);border-color:var(--blue);background:var(--blue-bg)}
+.validate-btn.done{color:var(--green);border-color:var(--green);background:var(--green-bg)}
+
+/* STATES */
+.empty{text-align:center;padding:60px 24px;color:var(--dim)}
+.loading-state{display:flex;align-items:center;justify-content:center;gap:10px;padding:80px;color:var(--muted)}
+.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-overlay.hidden{display:none}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:28px;max-width:400px;width:90%;text-align:center}
+.modal-spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+.modal-title{font-size:15px;font-weight:700;margin-bottom:6px}
+.modal-sub{font-size:13px;color:var(--muted);line-height:1.6}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="brand">
+    <span class="brand-icon">⬡</span>
+    <div>
+      <div class="brand-title">Crypto Intelligence</div>
+      <div class="brand-sub" id="subtitle">Loading…</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="stat-pill">Action Required: <span id="action-count">—</span></div>
+    <div class="stat-pill">Total Intel: <span id="total-count">—</span></div>
+    <div class="live-badge"><span class="live-dot"></span>Live</div>
+  </div>
+</header>
+
+<div class="chips-bar" id="chips-bar">
+  <button class="chip active" data-cat="">All</button>
+  <button class="chip" data-cat="Wallet">🔐 Wallets</button>
+  <button class="chip" data-cat="Explorer">📊 Explorers</button>
+  <button class="chip" data-cat="Dashboard">📈 Dashboards</button>
+  <button class="chip" data-cat="DEX">💱 DEX</button>
+  <button class="chip" data-cat="Aggregator">🔀 Aggregators</button>
+  <button class="chip" data-cat="Lending">🏦 Lending</button>
+  <button class="chip" data-cat="Bridge">🌉 Bridges</button>
+  <button class="chip" data-cat="L1">🔗 Layer 1</button>
+  <button class="chip" data-cat="L2">⚡ Layer 2</button>
+  <button class="chip" data-cat="Oracle">🔮 Oracles</button>
+  <button class="chip" data-cat="Stablecoin">💵 Stablecoins</button>
+  <button class="chip" data-cat="Infrastructure">🛠 Infrastructure</button>
+  <button class="chip" data-cat="Multisig">🛡 Multisig</button>
+  <button class="chip" data-cat="Security">🚨 Security</button>
+  <button class="chip" data-cat="DeFi">🎯 DeFi</button>
+</div>
+
+<div class="filter-bar">
+  <div class="search-wrap">
+    <input class="search" type="text" id="search" placeholder="Search intel…" oninput="render()">
+  </div>
+  <select id="urgency-filter" onchange="render()">
+    <option value="">All urgency levels</option>
+    <option value="immediate">⚠ Immediate</option>
+    <option value="days">📅 Days</option>
+    <option value="weeks">🗓 Weeks</option>
+    <option value="informational">ℹ Informational</option>
+  </select>
+  <select id="action-filter" onchange="render()">
+    <option value="">All action types</option>
+    <option value="update">Update</option>
+    <option value="migrate">Migrate</option>
+    <option value="withdraw">Withdraw</option>
+    <option value="revoke">Revoke</option>
+    <option value="rotate_keys">Rotate Keys</option>
+    <option value="exit">Exit</option>
+    <option value="claim">Claim</option>
+    <option value="vote">Vote</option>
+    <option value="monitor">Monitor</option>
+  </select>
+  <span class="filter-count" id="filter-count"></span>
+</div>
+
+<main id="main">
+  <div class="loading-state"><div class="spinner"></div>Loading intelligence…</div>
+</main>
+
+<div class="modal-overlay hidden" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-spinner" id="modal-spinner"></div>
+    <div class="modal-title" id="modal-title">Generating email…</div>
+    <div class="modal-sub" id="modal-sub">Writing hook and formatting intel</div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────
+const SUPABASE_URL      = 'https://wscjqyopukrvmjvuhqvx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndzY2pxeW9wdWtydm1qdnVocXZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0MzU1NTgsImV4cCI6MjA5NjAxMTU1OH0.acKeVJb2baHiDMNsUTAUq8y0OhcRD5QJ4ROt0wg9ils';
+const GROQ_MODEL        = 'llama-3.3-70b-versatile';
+
+// Groq key — prompted once per session, never in code
+function getGroqKey() {
+  let k = sessionStorage.getItem('groq_k');
+  if (!k) {
+    k = prompt('Enter your Groq API key:\n(Stored in this browser session only)');
+    if (!k) return null;
+    sessionStorage.setItem('groq_k', k.trim());
+  }
+  return k;
+}
+
+// ── INIT ────────────────────────────────────────────────────────
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── STATE ───────────────────────────────────────────────────────
+let allEvents    = [];
+let projectMap   = {};
+let eventStore   = {};
+let activeCategory = '';
+
+// ── LABELS ──────────────────────────────────────────────────────
+const URGENCY_CONFIG = {
+  immediate:     { label:'⚠ IMMEDIATE',  cls:'immediate',     color:'#ef4444' },
+  days:          { label:'📅 DAYS',       cls:'days',          color:'#f97316' },
+  weeks:         { label:'🗓 WEEKS',      cls:'weeks',         color:'#eab308' },
+  informational: { label:'ℹ INFO',        cls:'informational', color:'#4f8ef7' },
+};
+const ACTION_LABELS = {
+  update:'UPDATE', migrate:'MIGRATE', withdraw:'WITHDRAW', revoke:'REVOKE',
+  rotate_keys:'ROTATE KEYS', exit:'EXIT', claim:'CLAIM', vote:'VOTE',
+  verify:'VERIFY', monitor:'MONITOR', pause_usage:'PAUSE USAGE',
+};
+const AFFECTED_LABELS = {
+  all:'All users', wallet_users:'Wallet users', defi_users:'DeFi users',
+  bridge_users:'Bridge users', developers:'Developers',
+  stablecoin_holders:'Stablecoin holders', l2_users:'L2 users',
+};
+
+// ── UTILS ───────────────────────────────────────────────────────
+function timeAgo(d) {
+  const diff = Date.now() - new Date(d).getTime();
+  const m = Math.floor(diff/60000), h = Math.floor(m/60), days = Math.floor(h/24);
+  if (days > 0) return days + 'd ago';
+  if (h > 0)   return h + 'h ago';
+  if (m > 0)   return m + 'm ago';
+  return 'just now';
+}
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function formatDeadline(dt) {
+  if (!dt) return null;
+  const diff = new Date(dt).getTime() - Date.now();
+  const h = Math.floor(diff / 3600000);
+  if (h < 0)   return '⏰ Deadline passed';
+  if (h < 24)  return '⏰ ' + h + 'h remaining';
+  return '⏰ ' + Math.floor(h/24) + ' days left — ' + new Date(dt).toLocaleDateString();
+}
+
+// ── LOAD DATA ───────────────────────────────────────────────────
+async function load() {
+  try {
+    const [evRes, prRes] = await Promise.all([
+      db.from('events').select('*').order('detected_at', { ascending: false }).limit(300),
+      db.from('projects').select('id,name,category,logo_url').eq('is_active', true)
+    ]);
+
+    // Build project map
+    projectMap = {};
+    (prRes.data || []).forEach(p => { projectMap[p.id] = p; });
+
+    // Sort events by urgency then recency
+    const urgOrder = { immediate:0, days:1, weeks:2, informational:3 };
+    allEvents = (evRes.data || []).sort((a, b) => {
+      const ua = urgOrder[a.urgency] !== undefined ? urgOrder[a.urgency] : 3;
+      const ub = urgOrder[b.urgency] !== undefined ? urgOrder[b.urgency] : 3;
+      if (ua !== ub) return ua - ub;
+      return new Date(b.detected_at) - new Date(a.detected_at);
+    });
+
+    // Build event store for validate button
+    eventStore = {};
+    allEvents.forEach(e => { eventStore[e.id] = e; });
+
+    // Update header stats
+    const actionCount = allEvents.filter(e => e.action_required).length;
+    document.getElementById('action-count').textContent = actionCount;
+    document.getElementById('total-count').textContent  = allEvents.length;
+    document.getElementById('subtitle').textContent =
+      allEvents.length + ' intel items · ' + Object.keys(projectMap).length + ' projects monitored';
+
+    render();
+  } catch (err) {
+    document.getElementById('main').innerHTML =
+      '<div class="empty">Failed to load data. Check console for details.</div>';
+    console.error('Load error:', err);
+  }
+}
+
+// ── FILTER ──────────────────────────────────────────────────────
+function getFiltered() {
+  const search  = (document.getElementById('search').value || '').toLowerCase();
+  const urgency = document.getElementById('urgency-filter').value;
+  const action  = document.getElementById('action-filter').value;
+
+  return allEvents.filter(e => {
+    const proj = projectMap[e.project_id] || {};
+    if (activeCategory && proj.category !== activeCategory) return false;
+    if (urgency && e.urgency !== urgency) return false;
+    if (action  && e.action_type !== action) return false;
+    if (search) {
+      const hay = [e.title, e.description, proj.name].join(' ').toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+}
+
+// ── RENDER ──────────────────────────────────────────────────────
+function render() {
+  const filtered    = getFiltered();
+  const actionItems = filtered.filter(e => e.action_required && e.urgency !== 'informational');
+  const infoItems   = filtered.filter(e => !e.action_required || e.urgency === 'informational');
+
+  document.getElementById('filter-count').textContent = filtered.length + ' items';
+
+  if (!filtered.length) {
+    document.getElementById('main').innerHTML = '<div class="empty">No intel matches the current filters.</div>';
+    return;
+  }
+
+  let html = '';
+
+  if (actionItems.length) {
+    html += '<div class="section-header"><span class="section-title action">⚡ Action Required</span><span class="section-count action">' + actionItems.length + '</span></div>';
+    html += actionItems.map(renderCard).join('');
+  }
+
+  if (infoItems.length) {
+    if (actionItems.length) html += '<div class="section-divider"></div>';
+    html += '<div class="section-header"><span class="section-title inform">📡 Stay Informed</span><span class="section-count inform">' + infoItems.length + '</span></div>';
+    html += infoItems.map(renderCard).join('');
+  }
+
+  document.getElementById('main').innerHTML = html;
+}
+
+// ── RENDER CARD ─────────────────────────────────────────────────
+function renderCard(e) {
+  const proj     = projectMap[e.project_id] || {};
+  const urgCfg   = URGENCY_CONFIG[e.urgency] || URGENCY_CONFIG.informational;
+  const actLabel = ACTION_LABELS[e.action_type] || '';
+  const affected = AFFECTED_LABELS[e.affected_users] || '';
+  const deadline = formatDeadline(e.action_deadline);
+  const steps    = Array.isArray(e.action_steps) ? e.action_steps : [];
+
+  const logoHtml = proj.logo_url
+    ? '<img class="project-logo" src="' + esc(proj.logo_url) + '" alt="" onerror="this.style.display=\'none\'">'
+    : '';
+
+  const projectRow = proj.name
+    ? '<div class="project-row">' + logoHtml + '<span class="project-name">' + esc(proj.name) + '</span><span class="project-cat">' + esc(proj.category || '') + '</span></div>'
+    : '';
+
+  const stepsHtml = steps.length
+    ? '<div class="steps-label">What to do</div><div class="steps">' +
+      steps.map((s, i) => '<div class="step"><span class="step-num">' + (i+1) + '</span><span>' + esc(s) + '</span></div>').join('') +
+      '</div>'
+    : '';
+
+  const deadlineHtml = deadline
+    ? '<div class="deadline">' + esc(deadline) + '</div>'
+    : '';
+
+  return '<div class="card ' + urgCfg.cls + '">' +
+    '<div class="card-top"><div class="badges">' +
+      '<span class="badge-urgency ' + urgCfg.cls + '">' + urgCfg.label + '</span>' +
+      (actLabel ? '<span class="badge-action">' + esc(actLabel) + '</span>' : '') +
+      (affected ? '<span class="badge-users">' + esc(affected) + '</span>' : '') +
+    '</div><div class="card-meta">' +
+      '<a href="' + esc(e.source_url || '#') + '" target="_blank" rel="noopener" class="source-link">' + esc(e.source_platform || 'Source') + ' ↗</a>' +
+      '<span class="time-label">' + timeAgo(e.detected_at) + '</span>' +
+    '</div></div>' +
+    projectRow +
+    '<div class="card-title">' + esc(e.title) + '</div>' +
+    '<div class="card-desc">' + esc(e.description) + '</div>' +
+    stepsHtml +
+    deadlineHtml +
+    '<div class="card-bottom">' +
+      '<button class="validate-btn" onclick="handleValidate(this,\'' + e.id + '\')">✉ Validate &amp; Export Email</button>' +
+    '</div>' +
+  '</div>';
+}
+
+// ── CATEGORY CHIPS ───────────────────────────────────────────────
+document.getElementById('chips-bar').addEventListener('click', function(ev) {
+  var chip = ev.target.closest('.chip');
+  if (!chip) return;
+  document.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('active'); });
+  chip.classList.add('active');
+  activeCategory = chip.dataset.cat || '';
+  render();
+});
+
+// ── VALIDATE BUTTON ──────────────────────────────────────────────
+async function handleValidate(btn, eventId) {
+  const event = eventStore[eventId];
+  if (!event) { alert('Event not found — please refresh.'); return; }
+
+  const key = getGroqKey();
+  if (!key) return;
+
+  const proj = projectMap[event.project_id] || {};
+
+  btn.disabled = true;
+  btn.classList.add('loading');
+  btn.textContent = '⟳ Generating…';
+
+  document.getElementById('modal-spinner').style.display = 'block';
+  document.getElementById('modal-title').textContent  = 'Generating your email…';
+  document.getElementById('modal-sub').textContent    = 'Writing hook and formatting intel for distribution';
+  document.getElementById('modal-overlay').classList.remove('hidden');
+
+  try {
+    const ai   = await generateEmail(event, proj, key);
+    const html = buildEmailHtml(event, proj, ai);
+    downloadHtml(html, proj.name || 'intel', event.title);
+
+    document.getElementById('modal-overlay').classList.add('hidden');
+    btn.classList.remove('loading');
+    btn.classList.add('done');
+    btn.textContent = '✓ Downloaded';
+    setTimeout(function() {
+      btn.classList.remove('done');
+      btn.disabled = false;
+      btn.textContent = '✉ Validate & Export Email';
+    }, 3500);
+  } catch (err) {
+    document.getElementById('modal-overlay').classList.add('hidden');
+    btn.classList.remove('loading');
+    btn.disabled = false;
+    btn.textContent = '✉ Validate & Export Email';
+    alert('Email generation failed: ' + String(err).slice(0, 120));
+    console.error('Validate error:', err);
+  }
+}
+
+// ── GENERATE EMAIL (GROQ) ────────────────────────────────────────
+async function generateEmail(event, proj, groqKey) {
+  const steps    = Array.isArray(event.action_steps) ? event.action_steps : [];
+  const projName = proj.name || 'Project';
+  const affected = AFFECTED_LABELS[event.affected_users] || 'users';
+  const urgCtx   = {
+    immediate:     'CRITICAL — this needs immediate attention, funds or keys may be at risk',
+    days:          'Action needed within the next few days',
+    weeks:         'Important planned change with an upcoming deadline',
+    informational: 'Important update users should be aware of'
+  }[event.urgency] || '';
+
+  const prompt =
+    'You are writing an official email on behalf of ' + projName + ' to their users.\n\n' +
+    'Study how ' + projName + ' actually communicates — direct, clear, no fluff, brand voice.\n\n' +
+    'EVENT:\n' +
+    'Title: ' + event.title + '\n' +
+    'Description: ' + event.description + '\n' +
+    'Urgency context: ' + urgCtx + '\n' +
+    'Who is affected: ' + affected + '\n' +
+    'Action steps: ' + (steps.length ? steps.join(' | ') : 'None') + '\n' +
+    'Deadline: ' + (event.action_deadline ? new Date(event.action_deadline).toDateString() : 'None') + '\n\n' +
+    'OUTPUT RULES — follow exactly:\n' +
+    '- subject: irresistible subject line, max 65 chars, specific, creates urgency without clickbait\n' +
+    '- preview: inbox preview text, max 90 chars\n' +
+    '- headline: the main heading inside the email body — bold, direct, max 8 words. Like real project emails: "Ledger Live is shutting down", "Action Required: Update Your Wallet"\n' +
+    '- greeting: one short opening line. E.g. "Hi there," or "Important notice for all ' + projName + ' users."\n' +
+    '- body1: first paragraph — what happened, 2-3 sentences, plain language\n' +
+    '- body2: second paragraph — why it matters and what to do, 1-2 sentences. Can be empty string if not needed.\n' +
+    '- button: CTA button text, 2-4 words max, specific. E.g. "Update Wallet Now", "Get Started", "Withdraw Assets"\n' +
+    '- steps: array of step objects with "title" (short, bold) and "desc" (one sentence detail). Max 3 steps. Empty array if no steps.\n' +
+    '- help_line: one short support sentence. E.g. "Need help? Visit our Support Center or contact ' + projName + ' Support."\n' +
+    '- sign_off: closing line. E.g. "The ' + projName + ' Team" or "' + projName + ' Security"\n' +
+    '- security_note: one short sentence about what the project will NEVER ask for (seed phrases etc). Only if relevant to event.\n\n' +
+    'Respond ONLY with valid JSON, no other text:\n' +
+    '{"subject":"","preview":"","headline":"","greeting":"","body1":"","body2":"","button":"","steps":[],"help_line":"","sign_off":"","security_note":""}';
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + groqKey },
+    body:    JSON.stringify({ model: GROQ_MODEL, messages: [{ role: 'user', content: prompt }], max_tokens: 1200, temperature: 0.35 }),
+  });
+
+  if (!res.ok) throw new Error('Groq HTTP ' + res.status);
+  const data  = await res.json();
+  const text  = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('No JSON in Groq response');
+  return JSON.parse(match[0]);
+}
+
+// ── BUILD EMAIL HTML ─────────────────────────────────────────────
+function buildEmailHtml(event, proj, ai) {
+  const urgCfg   = URGENCY_CONFIG[event.urgency] || URGENCY_CONFIG.informational;
+  const projName = proj.name || 'Project';
+  const urgColor = urgCfg.color;
+  const year     = new Date().getFullYear();
+  const steps    = Array.isArray(ai.steps) ? ai.steps : [];
+
+  // Steps — simple numbered sections like real project emails
+  var stepsHtml = '';
+  if (steps.length) {
+    stepsHtml = '<table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">';
+    steps.forEach(function(s, i) {
+      var title = (typeof s === 'object' && s.title) ? s.title : (i + 1) + '.';
+      var desc  = (typeof s === 'object' && s.desc)  ? s.desc  : (typeof s === 'string' ? s : '');
+      stepsHtml +=
+        '<tr><td style="padding:16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;display:block;margin-bottom:8px;">' +
+        '<strong style="font-size:15px;color:#111827;display:block;margin-bottom:4px;">' + (i+1) + '. ' + title + '</strong>' +
+        (desc ? '<span style="font-size:14px;color:#6b7280;line-height:1.6;">' + desc + '</span>' : '') +
+        '</td></tr>' +
+        (i < steps.length - 1 ? '<tr><td style="height:8px;"></td></tr>' : '');
+    });
+    stepsHtml += '</table>';
+  }
+
+  // Logo: use actual logo if available, else styled project initial
+  var logoHtml;
+  if (proj.logo_url) {
+    logoHtml = '<img src="' + proj.logo_url + '" alt="' + projName + '" style="height:40px;max-width:160px;object-fit:contain;" />';
+  } else {
+    logoHtml = '<span style="font-size:18px;font-weight:900;color:#111827;letter-spacing:-.02em;">' + projName + '</span>';
+  }
+
+  // Deadline note
+  var deadlineNote = '';
+  if (event.action_deadline) {
+    var dl = new Date(event.action_deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    deadlineNote = '<p style="font-size:14px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:12px 16px;margin:0 0 24px;line-height:1.6;"><strong>Deadline: ' + dl + '</strong></p>';
+  }
+
+  return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
+    '<title>' + (ai.subject || event.title) + '</title>\n' +
+    '<!-- SUBJECT: ' + (ai.subject || event.title) + '\n' +
+    '     PREVIEW: ' + (ai.preview || '') + '\n' +
+    '     FROM:    ' + (ai.sign_off || projName) + '\n\n' +
+    '     Open in browser to preview.\n' +
+    '     Paste into Mailchimp / SendGrid / ConvertKit.\n' +
+    '     Fill in empty href="" links before sending. -->\n' +
+    '</head>\n' +
+    '<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif;">\n\n' +
+
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">\n' +
+    '<tr><td align="center">\n' +
+    '<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">\n\n' +
+
+    '<!-- invisible preview -->\n' +
+    '<tr><td style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;">' + (ai.preview || '') + '</td></tr>\n\n' +
+
+    '<!-- logo header -->\n' +
+    '<tr><td style="padding:32px 0 24px;text-align:center;">\n' +
+    logoHtml + '\n' +
+    '</td></tr>\n\n' +
+
+    '<!-- card -->\n' +
+    '<tr><td style="background:#ffffff;border-radius:12px;padding:40px 48px 36px;">\n\n' +
+
+    (ai.greeting ? '<p style="font-size:15px;color:#374151;margin:0 0 20px;line-height:1.7;">' + ai.greeting + '</p>\n\n' : '') +
+
+    '<h1 style="font-size:24px;font-weight:700;color:#111827;line-height:1.3;margin:0 0 20px;">' + (ai.headline || event.title) + '</h1>\n\n' +
+
+    '<p style="font-size:15px;color:#374151;line-height:1.75;margin:0 0 16px;">' + (ai.body1 || event.description) + '</p>\n\n' +
+
+    (ai.body2 ? '<p style="font-size:15px;color:#374151;line-height:1.75;margin:0 0 28px;">' + ai.body2 + '</p>\n\n' : '') +
+
+    deadlineNote +
+
+    '<!-- CTA button - full width, like real project emails -->\n' +
+    '<table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 32px;">\n' +
+    '<tr><td style="background:' + urgColor + ';border-radius:8px;text-align:center;">\n' +
+    '<a href="" style="display:block;padding:16px 24px;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;" target="_blank">' +
+    (ai.button || 'Take Action') +
+    '</a>\n</td></tr>\n</table>\n\n' +
+
+    stepsHtml +
+
+    (ai.security_note ? '<p style="font-size:13px;color:#9ca3af;line-height:1.6;margin:0 0 24px;">' + ai.security_note + '</p>\n\n' : '') +
+
+    (ai.help_line ? '<p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 32px;">' + ai.help_line + '</p>\n\n' : '') +
+
+    '<p style="font-size:15px;color:#374151;margin:0;">' + (ai.sign_off || 'The ' + projName + ' Team') + '</p>\n\n' +
+
+    '</td></tr>\n\n' +
+
+    '<!-- footer -->\n' +
+    '<tr><td style="padding:24px 0;text-align:center;">\n' +
+    '<p style="font-size:12px;color:#9ca3af;margin:0 0 8px;">\n' +
+    '<a href="" style="color:#9ca3af;text-decoration:none;">' + projName + '.com</a>' +
+    ' &nbsp;&middot;&nbsp; <a href="" style="color:#9ca3af;text-decoration:none;">Support</a>' +
+    ' &nbsp;&middot;&nbsp; <a href="" style="color:#9ca3af;text-decoration:none;">Unsubscribe</a>\n' +
+    '</p>\n' +
+    '<p style="font-size:11px;color:#d1d5db;margin:0;">&copy; ' + year + ' ' + projName + '. All rights reserved.</p>\n' +
+    '</td></tr>\n\n' +
+
+    '</table>\n</td></tr>\n</table>\n\n</body>\n</html>';
+}
+
+// ── DOWNLOAD ─────────────────────────────────────────────────────
+function downloadHtml(html, projectName, title) {
+  var slug = (projectName + '-' + title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href = url;
+  a.download = 'intel-' + slug + '.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── MODAL ────────────────────────────────────────────────────────
+document.getElementById('modal-overlay').addEventListener('click', function(e) {
+  if (e.target === document.getElementById('modal-overlay'))
+    document.getElementById('modal-overlay').classList.add('hidden');
+});
+
+// ── REALTIME ─────────────────────────────────────────────────────
+db.channel('events-feed')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'events' }, function(payload) {
+    var e = payload.new;
+    allEvents.unshift(e);
+    eventStore[e.id] = e;
+    var urgOrder = { immediate:0, days:1, weeks:2, informational:3 };
+    allEvents.sort(function(a, b) {
+      var ua = urgOrder[a.urgency] !== undefined ? urgOrder[a.urgency] : 3;
+      var ub = urgOrder[b.urgency] !== undefined ? urgOrder[b.urgency] : 3;
+      return ua !== ub ? ua - ub : new Date(b.detected_at) - new Date(a.detected_at);
+    });
+    document.getElementById('action-count').textContent = allEvents.filter(function(ev) { return ev.action_required; }).length;
+    document.getElementById('total-count').textContent  = allEvents.length;
+    render();
+  })
+  .subscribe();
+
+// Auto-refresh every 60 seconds
+setInterval(load, 60000);
+
+// ── START ────────────────────────────────────────────────────────
+load();
+</script>
+</body>
+</html>
