@@ -47,7 +47,6 @@ export const config = {
   newsFeeds: [
     // Security-first — highest signal for actionable events
     { name: 'Rekt News',       url: 'https://rekt.news/feed/' },
-    { name: 'Immunefi Blog',   url: 'https://immunefi.com/blog/rss.xml' },
 
     // Official protocol communications
     { name: 'Ethereum Blog',   url: 'https://blog.ethereum.org/en/feed.xml' },
