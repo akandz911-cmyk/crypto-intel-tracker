@@ -22,3 +22,4 @@ jobs:
           CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
