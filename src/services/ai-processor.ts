@@ -1,48 +1,85 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import fetch from 'node-fetch';
 import { supabase } from '../db/client';
-import { config } from '../config';
 import { logger } from '../utils/logger';
 
-const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
+// Direct HTTP call to Gemini — no SDK, no compatibility issues
+async function callGemini(prompt: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
+
+  const models = [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash-latest',
+    'gemini-pro',
+  ];
+
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    let res: Awaited<ReturnType<typeof fetch>>;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 512, temperature: 0 },
+        }),
+      });
+    } catch (err) {
+      throw new Error(`Network error: ${String(err)}`);
+    }
+
+    if (res.status === 404) {
+      logger.warn(`Model ${model} returned 404, trying next`);
+      continue;
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Gemini HTTP ${res.status} using ${model}: ${body.slice(0, 400)}`);
+    }
+
+    const data = await res.json() as any;
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    if (!text) throw new Error(`Empty response from ${model}`);
+    logger.info(`Using model: ${model}`);
+    return text;
+  }
+
+  throw new Error('All Gemini models returned 404 — check API key');
+}
 
 async function classifyOne(rawText: string, sourceUrl: string, platform: string): Promise<any> {
-  const model = genAI.getGenerativeModel({ model: config.gemini.model });
-  const prompt = `You are a crypto analyst. Is this news significant?
+  const prompt = `You are a crypto analyst. Is this crypto news significant?
 
-SIGNIFICANT: hack, exploit, security breach, protocol upgrade, mainnet launch, exchange listing, delisting, regulatory action, major partnership, airdrop, token burn, governance vote, outage, rug pull.
-NOT significant: price commentary, market analysis, opinions, general roundups.
+SIGNIFICANT: exploit, hack, security breach, protocol upgrade, mainnet launch, exchange listing, delisting, regulatory action, major partnership, airdrop, token burn, governance vote, outage, rug pull, project shutdown.
+NOT SIGNIFICANT: price commentary, market analysis, opinion, general roundups, social posts.
 
 Source: ${platform}
 URL: ${sourceUrl}
 Text: ${rawText.slice(0, 500)}
 
-Reply with ONLY JSON:
-If not significant: {"significant":false}
-If significant: {"significant":true,"event_category":"planned or unplanned","event_type":"exploit or upgrade or listing or regulatory_action or partnership or airdrop or token_burn or governance or downtime or rug_pull or incident or product_launch","severity":3,"title":"short title","description":"2 sentence summary","source_url":"${sourceUrl}"}`;
+Reply with ONLY valid JSON and nothing else:
+Not significant: {"significant":false}
+Significant: {"significant":true,"event_category":"planned or unplanned","event_type":"exploit or upgrade or listing or delisting or regulatory_action or partnership or airdrop or token_burn or governance or downtime or rug_pull or incident or product_launch","severity":3,"title":"short title under 80 chars","description":"2 sentence factual summary","source_url":"${sourceUrl}"}`;
 
-  try {
-    const result = await model.generateContent(prompt);
-    let text: string;
-    try { text = result.response.text(); } catch { return { significant: false }; }
-    const match = text.match(/\{[\s\S]*?\}/);
-    if (!match) return { significant: false };
-    return JSON.parse(match[0]);
-  } catch (err) {
-    logger.warn('Gemini call error', String(err).slice(0, 150));
-    throw err;
-  }
+  const text = await callGemini(prompt);
+  const match = text.match(/\{[\s\S]*?\}/);
+  if (!match) return { significant: false };
+  try { return JSON.parse(match[0]); } catch { return { significant: false }; }
 }
 
-async function findProjectId(rawText: string, projectId?: string): Promise<string | null> {
-  if (projectId) return projectId;
+async function findProjectId(rawText: string, existingId?: string): Promise<string | null> {
+  if (existingId) return existingId;
   const { data: projects } = await supabase
     .from('projects').select('id, name, slug, token_symbol')
     .eq('is_active', true).order('significance_score', { ascending: false }).limit(250);
   if (!projects) return null;
   const text = rawText.toLowerCase();
   for (const p of projects) {
-    if ((p.name?.toLowerCase().length ?? 0) > 2 && text.includes(p.name.toLowerCase())) return p.id;
-    if ((p.token_symbol?.toLowerCase().length ?? 0) > 2 && text.includes(p.token_symbol!.toLowerCase())) return p.id;
+    if ((p.name?.length ?? 0) > 2 && text.includes(p.name.toLowerCase())) return p.id;
+    if ((p.token_symbol?.length ?? 0) > 2 && text.includes(p.token_symbol!.toLowerCase())) return p.id;
   }
   const { data: fallback } = await supabase.from('projects').select('id').eq('slug', 'general-crypto-news').single();
   return fallback?.id ?? null;
@@ -65,7 +102,9 @@ export async function runAiProcessing(): Promise<void> {
     if (!items?.length) { logger.info('Nothing to process'); return; }
     logger.info(`Processing ${items.length} items`);
 
-    await supabase.from('raw_content').update({ processing_status: 'processing' }).in('id', items.map((r: any) => r.id));
+    await supabase.from('raw_content')
+      .update({ processing_status: 'processing' })
+      .in('id', items.map((r: any) => r.id));
 
     for (const item of items as any[]) {
       processed++;
@@ -74,22 +113,25 @@ export async function runAiProcessing(): Promise<void> {
         result = await classifyOne(item.raw_text, item.source_url, item.source_platform);
         logger.info(`Item ${processed}: significant=${result.significant} type=${result.event_type ?? 'n/a'}`);
       } catch (err) {
-        await supabase.from('raw_content').update({ processing_status: 'error', processing_error: 'Gemini error', processing_attempts: 1 }).eq('id', item.id);
+        logger.warn(`Failed item ${processed}: ${String(err).slice(0, 300)}`);
+        await supabase.from('raw_content').update({
+          processing_status: 'error', processing_error: String(err).slice(0, 200), processing_attempts: 1
+        }).eq('id', item.id);
         errors++;
-        await new Promise(r => setTimeout(r, 5000));
+        await sleep(3000);
         continue;
       }
 
       if (!result.significant || !result.event_type || !result.title) {
         await supabase.from('raw_content').update({ processing_status: 'skipped', processing_attempts: 1 }).eq('id', item.id);
-        await new Promise(r => setTimeout(r, 4500));
+        await sleep(4000);
         continue;
       }
 
       const projectId = await findProjectId(item.raw_text, item.project_id);
       if (!projectId) {
         await supabase.from('raw_content').update({ processing_status: 'skipped', processing_attempts: 1 }).eq('id', item.id);
-        await new Promise(r => setTimeout(r, 4500));
+        await sleep(4000);
         continue;
       }
 
@@ -97,24 +139,23 @@ export async function runAiProcessing(): Promise<void> {
         project_id: projectId, raw_content_id: item.id,
         event_category: result.event_category ?? 'unplanned',
         event_type: result.event_type,
-        severity: Math.min(5, Math.max(1, result.severity ?? 3)),
+        severity: Math.min(5, Math.max(1, Number(result.severity) || 3)),
         title: String(result.title).slice(0, 300),
         description: String(result.description ?? '').slice(0, 2000),
         source_platform: item.source_platform,
         source_url: result.source_url ?? item.source_url,
         detected_at: new Date().toISOString(),
-        tags: result.tags ?? [],
+        tags: Array.isArray(result.tags) ? result.tags : [],
       });
 
       await supabase.from('raw_content').update({
         processing_status: insertErr ? 'error' : 'done',
-        is_significant: !insertErr,
-        processed_at: new Date().toISOString(),
-        processing_attempts: 1,
+        is_significant: !insertErr, processed_at: new Date().toISOString(), processing_attempts: 1,
       }).eq('id', item.id);
 
-      if (!insertErr) { events++; logger.info(`Event saved: ${result.title}`); }
-      await new Promise(r => setTimeout(r, 4500));
+      if (!insertErr) { events++; logger.info(`✓ Event saved: ${result.title}`); }
+      else logger.warn(`Insert error: ${insertErr.message}`);
+      await sleep(4000);
     }
   } finally {
     logger.info(`Done: ${processed} processed, ${events} events, ${errors} errors`);
@@ -123,4 +164,10 @@ export async function runAiProcessing(): Promise<void> {
       items_processed: events, metadata: { processed, events, errors },
     }).eq('id', jobId);
   }
+}
+
+function sleep(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
+
+if (require.main === module) {
+  runAiProcessing().catch(err => { console.error(String(err)); process.exit(1); });
 }
