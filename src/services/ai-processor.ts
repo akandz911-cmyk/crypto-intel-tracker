@@ -225,20 +225,20 @@ export async function runAiProcessing(): Promise<void> {
         logger.warn(`Item ${processed} failed: ${String(err).slice(0, 200)}`);
         await markProcessed(item.id, false, String(err).slice(0, 200));
         errors++;
-        await sleep(2000);
+        await sleep(5000);
         continue;
       }
 
       if (!result.actionable || !result.event_type || !result.title) {
         await markProcessed(item.id, false);
-        await sleep(1500);
+        await sleep(5000);
         continue;
       }
 
       const projectId = await findProjectId(item.raw_text, item.project_id);
       if (!projectId) {
         await markProcessed(item.id, false, 'No project match');
-        await sleep(1500);
+        await sleep(5000);
         continue;
       }
 
@@ -271,7 +271,7 @@ export async function runAiProcessing(): Promise<void> {
         logger.warn(`Insert error: ${ie.message}`);
       }
 
-      await sleep(1500);
+      await sleep(5000);
     }
   } finally {
     logger.info(`Done: ${processed} processed, ${events} events created, ${errors} errors`);
