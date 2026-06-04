@@ -17,7 +17,7 @@ export const config = {
     model:  'gemini-2.0-flash-lite' as const,
   },
   groq: {
-    apiKey: require_env('GROQ_API_KEY'),
+    apiKey: process.env.GROQ_API_KEY ?? '',
     model:  'llama-3.3-70b-versatile' as const,
   },
   apis: {
