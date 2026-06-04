@@ -283,8 +283,7 @@ function formatDeadline(dt) {
 // ── LOAD DATA ──────────────────────────────────────────────────
 async function load() {
   const [evRes, prRes] = await Promise.all([
-    db.from('events').select('*').order('urgency_rank', {ascending:true})
-      .order('detected_at', {ascending:false}).limit(300),
+    db.from('events').select('*').order('detected_at', {ascending:false}).limit(300),
     db.from('projects').select('id,name,category,logo_url,significance_score').eq('is_active',true)
   ]);
 
