@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crypto Intelligence Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b0d10;color:#e8eaf0;font-family:Inter,-apple-system,sans-serif;font-size:14px;min-height:100vh}
+header{background:#13161d;border-bottom:1px solid rgba(255,255,255,.07);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+header h1{font-size:17px;font-weight:600}
+header p{font-size:12px;color:#7a8299;margin-top:2px}
+.live{display:flex;align-items:center;gap:6px;font-size:12px;color:#22c55e;font-family:monospace}
+.dot{width:7px;height:7px;border-radius:50%;background:#22c55e;animation:pulse 2s infinite}
+.filters{background:#13161d;border-bottom:1px solid rgba(255,255,255,.07);padding:10px 24px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+select,input{background:#1a1e28;border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:7px 10px;color:#e8eaf0;font-size:13px;outline:none}
+input{flex:1;min-width:180px}
+.count{font-size:12px;color:#4a5268;margin-left:auto;font-family:monospace}
+main{max-width:1100px;margin:0 auto;padding:20px 24px}
+.card{background:#13161d;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:16px 18px;margin-bottom:10px;border-left:3px solid #4b5563;transition:border-color .15s}
+.card:hover{border-color:rgba(255,255,255,.14)}
+.card.sev-5{border-left-color:#ef4444;background:#140c0c}
+.card.sev-4{border-left-color:#f87171}
+.card.sev-3{border-left-color:#fbbf24}
+.card.sev-2{border-left-color:#38bdf8}
+.card.sev-1{border-left-color:#9ca3af}
+.card-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.badges{display:flex;gap:6px;flex-wrap:wrap}
+.badge{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-sev-1{background:#374151;color:#9ca3af}
+.badge-sev-2{background:#0c2d3f;color:#38bdf8}
+.badge-sev-3{background:#3b1f00;color:#fbbf24}
+.badge-sev-4{background:#3b0a0a;color:#f87171}
+.badge-sev-5{background:#4a0000;color:#ef4444;box-shadow:0 0 8px rgba(239,68,68,.3)}
+.badge-planned{background:rgba(34,197,94,.12);color:#4ade80}
+.badge-unplanned{background:rgba(239,68,68,.12);color:#f87171}
+.badge-type{background:rgba(255,255,255,.06);color:#7a8299}
+.source-link{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#1a1e28;border:1px solid rgba(255,255,255,.07);border-radius:6px;text-decoration:none;color:#7a8299;font-size:11px;transition:all .15s}
+.source-link:hover{background:rgba(79,142,247,.1);border-color:#4f8ef7;color:#4f8ef7}
+.meta{display:flex;align-items:center;gap:10px}
+.time{font-size:11px;color:#4a5268;font-family:monospace}
+.project-row{display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.project-name{font-size:13px;font-weight:600;color:#7a8299}
+.cat-badge{font-size:10px;padding:1px 6px;background:rgba(255,255,255,.05);border-radius:10px;color:#4a5268}
+h3{font-size:15px;font-weight:600;margin-bottom:8px;letter-spacing:-.01em}
+p.desc{font-size:13px;color:#7a8299;line-height:1.6}
+.empty{text-align:center;padding:80px 24px;color:#4a5268}
+.spinner{width:24px;height:24px;border:2px solid rgba(255,255,255,.1);border-top-color:#4f8ef7;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>⬡ Crypto Intelligence</h1>
+    <p id="subtitle">Loading...</p>
+  </div>
+  <div class="live"><span class="dot"></span>Live</div>
+</header>
+
+<div class="filters">
+  <input type="text" id="search" placeholder="Search events…" oninput="render()">
+  <select id="cat" onchange="render()">
+    <option value="">All categories</option>
+    <option value="planned">Planned</option>
+    <option value="unplanned">Unplanned</option>
+  </select>
+  <select id="sev" onchange="render()">
+    <option value="1">All severities</option>
+    <option value="2">Minor+</option>
+    <option value="3">Moderate+</option>
+    <option value="4">Major+</option>
+    <option value="5">Critical only</option>
+  </select>
+  <span class="count" id="count"></span>
+</div>
+
+<main id="main"><div class="empty"><div class="spinner"></div>Loading events…</div></main>
+
+<script>
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let events = [];
+let projects = {};
+
+const SEV_LABELS = {1:'Info',2:'Minor',3:'Moderate',4:'Major',5:'Critical'};
+const TYPE_LABELS = {
+  upgrade:'Upgrade',migration:'Migration',airdrop:'Airdrop',token_burn:'Token Burn',
+  listing:'Listing',partnership:'Partnership',governance:'Governance',
+  mainnet_launch:'Mainnet Launch',testnet:'Testnet',vesting_unlock:'Vesting Unlock',
+  relaunch:'Relaunch',hardware_update:'Hardware Update',product_launch:'Product Launch',
+  security_breach:'Security Breach',exploit:'Exploit',downtime:'Downtime',
+  regulatory_action:'Regulatory',controversy:'Controversy',delisting:'Delisting',
+  emergency_patch:'Emergency Patch',community_revolt:'Community',rug_pull:'Rug Pull',
+  incident:'Incident',market_anomaly:'Market Anomaly',outage:'Outage'
+};
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff/60000), h = Math.floor(m/60), d = Math.floor(h/24);
+  if(d>0) return d+'d ago';
+  if(h>0) return h+'h ago';
+  if(m>0) return m+'m ago';
+  return 'just now';
+}
+
+function render() {
+  const search = document.getElementById('search').value.toLowerCase();
+  const cat    = document.getElementById('cat').value;
+  const minSev = parseInt(document.getElementById('sev').value)||1;
+
+  const filtered = events.filter(e => {
+    if(cat && e.event_category !== cat) return false;
+    if(e.severity < minSev) return false;
+    if(search && !e.title?.toLowerCase().includes(search) && !e.description?.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  document.getElementById('count').textContent = filtered.length + ' events';
+
+  if(!filtered.length) {
+    document.getElementById('main').innerHTML = '<div class="empty">No events match the current filters.</div>';
+    return;
+  }
+
+  document.getElementById('main').innerHTML = filtered.map(e => {
+    const p = projects[e.project_id] || {};
+    const sev = e.severity || 3;
+    const typeLabel = TYPE_LABELS[e.event_type] || e.event_type || '';
+    const platform = e.source_platform || 'Unknown';
+    return `
+    <div class="card sev-${sev}">
+      <div class="card-header">
+        <div class="badges">
+          <span class="badge badge-sev-${sev}">${SEV_LABELS[sev]||sev}</span>
+          <span class="badge badge-${e.event_category||'planned'}">${e.event_category==='planned'?'📅 Planned':'⚡ Unplanned'}</span>
+          <span class="badge badge-type">${typeLabel}</span>
+        </div>
+        <div class="meta">
+          <a href="${e.source_url||'#'}" target="_blank" rel="noopener" class="source-link">
+            ${platform} ↗
+          </a>
+          <span class="time">${timeAgo(e.detected_at)}</span>
+        </div>
+      </div>
+      ${p.name ? `<div class="project-row"><span class="project-name">${p.name}</span><span class="cat-badge">${p.category||''}</span></div>` : ''}
+      <h3>${e.title||''}</h3>
+      <p class="desc">${e.description||''}</p>
+    </div>`;
+  }).join('');
+}
+
+async function load() {
+  const [evRes, prRes] = await Promise.all([
+    db.from('events').select('*').order('detected_at',{ascending:false}).limit(200),
+    db.from('projects').select('id,name,category,logo_url').eq('is_active',true)
+  ]);
+  
+  events = evRes.data || [];
+  (prRes.data||[]).forEach(p => projects[p.id] = p);
+
+  const count = events.length;
+  document.getElementById('subtitle').textContent = 
+    `${count} events · ${Object.keys(projects).length} projects monitored · Updates every 30 min`;
+
+  render();
+}
+
+// Load on start then auto-refresh every 30 seconds
+load();
+setInterval(load, 30000);
+
+// Supabase Realtime — new events appear instantly
+db.channel('events').on('postgres_changes',
+  {event:'INSERT',schema:'public',table:'events'},
+  payload => {
+    events.unshift(payload.new);
+    render();
+  }
+).subscribe();
+</script>
+</body>
+</html>
