@@ -2,54 +2,31 @@ import fetch from 'node-fetch';
 import { supabase } from '../db/client';
 import { logger } from '../utils/logger';
 
-// Cache the first model that works so we don't waste requests testing others
-let workingModel: string | null = null;
+async function callGroq(prompt: string): Promise<string> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error('GROQ_API_KEY not set');
 
-async function callGemini(prompt: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set');
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 512,
+      temperature: 0,
+    }),
+  });
 
-  const models = workingModel
-    ? [workingModel]
-    : ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-latest', 'gemini-pro'];
-
-  for (const model of models) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-    const makeRequest = async () => fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 512, temperature: 0 },
-      }),
-    });
-
-    let res = await makeRequest();
-
-    if (res.status === 404) { logger.warn(`Model ${model} not found, trying next`); continue; }
-
-    // On 429 wait a full minute then retry once
-    if (res.status === 429) {
-      logger.warn('Rate limited — waiting 65 seconds then retrying');
-      await sleep(65000);
-      res = await makeRequest();
-    }
-
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`HTTP ${res.status} from ${model}: ${body.slice(0, 300)}`);
-    }
-
-    const data = await res.json() as any;
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    if (!text) throw new Error(`Empty response from ${model}`);
-
-    if (!workingModel) { workingModel = model; logger.info(`Working model: ${model}`); }
-    return text;
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Groq HTTP ${res.status}: ${body.slice(0, 300)}`);
   }
 
-  throw new Error('All Gemini models returned 404 — check API key');
+  const data = await res.json() as any;
+  return data?.choices?.[0]?.message?.content ?? '';
 }
 
 async function classifyOne(rawText: string, sourceUrl: string, platform: string): Promise<any> {
@@ -59,14 +36,13 @@ SIGNIFICANT: hack, exploit, security breach, protocol upgrade, mainnet launch, e
 NOT SIGNIFICANT: price commentary, market analysis, opinion pieces, general news roundups.
 
 Source: ${platform}
-Text: ${rawText.slice(0, 500)}
+Text: ${rawText.slice(0, 600)}
 
-Reply with ONLY valid JSON:
-{"significant":false}
-OR
-{"significant":true,"event_category":"planned or unplanned","event_type":"exploit or upgrade or listing or delisting or regulatory_action or partnership or airdrop or token_burn or governance or downtime or rug_pull or incident or product_launch","severity":3,"title":"short title","description":"2 sentence summary","source_url":"${sourceUrl}"}`;
+Reply with ONLY valid JSON and nothing else:
+Not significant: {"significant":false}
+Significant: {"significant":true,"event_category":"planned or unplanned","event_type":"exploit or upgrade or listing or delisting or regulatory_action or partnership or airdrop or token_burn or governance or downtime or rug_pull or incident or product_launch","severity":3,"title":"short title under 80 chars","description":"2 sentence factual summary","source_url":"${sourceUrl}"}`;
 
-  const text = await callGemini(prompt);
+  const text = await callGroq(prompt);
   const match = text.match(/\{[\s\S]*?\}/);
   if (!match) return { significant: false };
   try { return JSON.parse(match[0]); } catch { return { significant: false }; }
@@ -100,7 +76,7 @@ export async function runAiProcessing(): Promise<void> {
       .in('processing_status', ['pending', 'error'])
       .lt('processing_attempts', 3)
       .order('fetched_at', { ascending: true })
-      .limit(8); // Small batch — leaves room for 429 retry waits within timeout
+      .limit(30);
 
     if (!items?.length) { logger.info('Nothing to process'); return; }
     logger.info(`Processing ${items.length} items`);
@@ -112,6 +88,7 @@ export async function runAiProcessing(): Promise<void> {
     for (const item of items as any[]) {
       processed++;
       let result: any;
+
       try {
         result = await classifyOne(item.raw_text, item.source_url, item.source_platform);
         logger.info(`Item ${processed}: significant=${result.significant} type=${result.event_type ?? '-'}`);
@@ -123,20 +100,20 @@ export async function runAiProcessing(): Promise<void> {
           processing_attempts: 1,
         }).eq('id', item.id);
         errors++;
-        await sleep(8000);
+        await sleep(2000);
         continue;
       }
 
       if (!result.significant || !result.event_type || !result.title) {
         await supabase.from('raw_content').update({ processing_status: 'skipped', processing_attempts: 1 }).eq('id', item.id);
-        await sleep(8000); // 8 seconds = 7.5 RPM — safely under 15 RPM limit
+        await sleep(1000);
         continue;
       }
 
       const projectId = await findProjectId(item.raw_text, item.project_id);
       if (!projectId) {
         await supabase.from('raw_content').update({ processing_status: 'skipped', processing_attempts: 1 }).eq('id', item.id);
-        await sleep(8000);
+        await sleep(1000);
         continue;
       }
 
@@ -163,7 +140,7 @@ export async function runAiProcessing(): Promise<void> {
 
       if (!ie) { events++; logger.info(`✓ Event: ${result.title}`); }
       else logger.warn(`Insert error: ${ie.message}`);
-      await sleep(8000);
+      await sleep(1000);
     }
   } finally {
     logger.info(`Done: ${processed} processed, ${events} events, ${errors} errors`);
